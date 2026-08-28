@@ -54,7 +54,7 @@ class DiffIKSolver:
         self.lower_limits = lower
         self.upper_limits = upper
 
-        # Reference posture for the nullspace term, added in a later milestone.
+        # Posture the nullspace term pulls toward.
         if config.home_posture is None:
             self.q_reference = handles.q_home.copy()
         else:
@@ -71,6 +71,9 @@ class DiffIKSolver:
         self._jjt = np.zeros((_TASK_DIM, _TASK_DIM), dtype=np.float64)
         self._damping_eye = np.eye(_TASK_DIM, dtype=np.float64)
         self._dq = np.zeros(_ARM_DOF, dtype=np.float64)
+        self._qdot_secondary = np.zeros(_ARM_DOF, dtype=np.float64)
+        self._q_current = np.zeros(_ARM_DOF, dtype=np.float64)
+        self._task_velocity = np.zeros(_TASK_DIM, dtype=np.float64)
         self._dq_full = np.zeros(nv, dtype=np.float64)
         self._q = np.zeros(model.nq, dtype=np.float64)
         self._q_arm = np.zeros(_ARM_DOF, dtype=np.float64)
@@ -114,8 +117,44 @@ class DiffIKSolver:
         # this method is preallocated.
         np.matmul(jac.T, np.linalg.solve(self._jjt, error), out=self._dq)
 
+        self._add_nullspace_term(jac)
         self._limit_angular_velocity()
         return self._dq
+
+    def _add_nullspace_term(self, jac: NDArray[np.float64]) -> None:
+        """Add a secondary objective that cannot disturb the primary task.
+
+        Seven joints serve a six-dimensional task, so one direction of joint
+        motion leaves the end-effector where it is: the elbow can swing while
+        the gripper stays put. Projecting a desired secondary velocity onto that
+        direction spends the spare freedom for free.
+
+            qdot = J^+ e + (I - J^+ J) qdot_0,  qdot_0 = Kn (q_home - q)
+
+        The projector is never formed. Applying it to a vector is
+
+            (I - J^+ J) v = v - J^T (J J^T + lambda^2 I)^-1 (J v)
+
+        which reuses the matrix already factored for the primary solve, stays a
+        6x6 problem instead of a 7x7 one, and keeps the same damping on both
+        terms. Building J^+ explicitly with pinv would drop that damping and
+        reintroduce the blow-up near singularities that the primary solve is
+        written to avoid.
+        """
+        gain = self.config.nullspace_gain
+        if gain == 0.0:
+            return
+
+        handles = self.handles
+        np.take(handles.data.qpos, handles.qpos_ids, out=self._q_current)
+        np.subtract(self.q_reference, self._q_current, out=self._qdot_secondary)
+        self._qdot_secondary *= gain
+
+        np.matmul(jac, self._qdot_secondary, out=self._task_velocity)
+        self._qdot_secondary -= jac.T @ np.linalg.solve(
+            self._jjt, self._task_velocity
+        )
+        self._dq += self._qdot_secondary
 
     def _limit_angular_velocity(self) -> None:
         """Scale dq down so max(|dq|) stays under the configured bound.

@@ -417,3 +417,167 @@ def test_home_posture_overrides_the_keyframe_reference(
 
     default_solver = DiffIKSolver(handles, DiffIKConfig())
     assert np.allclose(default_solver.q_reference, handles.q_home)
+
+
+# --------------------------------------------------------------------------
+# Nullspace projection
+# --------------------------------------------------------------------------
+
+# Displaces the elbow without being extreme, so the redundant direction has
+# something to work with once the primary task is satisfied.
+ELBOW_OFFSET = np.array([0.6, 0.0, 0.5, 0.3, 0.4, 0.0, 0.8])
+
+# A gain that is stable under the kinematic iteration used by these tests.
+# See test_high_gain_needs_a_smaller_integration_dt for why 5.0 is not.
+STABLE_GAIN = 1.0
+
+
+def _place_target_from_posture(
+    handles: RobotHandles, posture_offset: NDArray[np.float64]
+) -> None:
+    """Start from a displaced posture with the target on the gripper, then move
+    the target. The arm has to solve the task and has spare freedom left over."""
+    model_mod.reset_to_home(handles)
+    handles.data.qpos[handles.qpos_ids] = handles.q_home + posture_offset
+    mujoco.mj_forward(handles.model, handles.data)
+    model_mod.sync_target_to_site(handles)
+    handles.data.mocap_pos[handles.mocap_id] += np.array([0.08, 0.10, -0.05])
+
+
+def _converged_state(
+    handles: RobotHandles, gain: float, integration_dt: float = 1.0
+) -> tuple[NDArray[np.float64], NDArray[np.float64], DiffIKSolver]:
+    solver = DiffIKSolver(
+        handles,
+        DiffIKConfig(nullspace_gain=gain, integration_dt=integration_dt),
+    )
+    _place_target_from_posture(handles, ELBOW_OFFSET)
+    _iterate_kinematically(solver, 400)
+    return (
+        handles.data.qpos[handles.qpos_ids].copy(),
+        handles.data.site_xpos[handles.site_id].copy(),
+        solver,
+    )
+
+
+def test_zero_gain_disables_the_term_exactly(handles: RobotHandles) -> None:
+    """A disabled secondary objective must cost nothing and change nothing, so
+    every benchmark run with the term off is comparable to a build without it."""
+    _place_target_from_posture(handles, ELBOW_OFFSET)
+
+    plain = DiffIKSolver(handles, DiffIKConfig(nullspace_gain=0.0))
+    dq_plain = plain.solve(plain.pose_error.compute()).copy()
+
+    tiny = DiffIKSolver(handles, DiffIKConfig(nullspace_gain=1e-12))
+    dq_tiny = tiny.solve(tiny.pose_error.compute()).copy()
+
+    assert np.allclose(dq_plain, dq_tiny, atol=1e-9)
+
+
+def test_nullspace_component_does_not_move_the_end_effector(
+    handles: RobotHandles,
+) -> None:
+    """The defining property, checked directly rather than through its
+    consequences: whatever the secondary objective adds to dq must map to zero
+    task-space velocity."""
+    _place_target_from_posture(handles, ELBOW_OFFSET)
+
+    plain = DiffIKSolver(handles, DiffIKConfig(nullspace_gain=0.0))
+    dq_plain = plain.solve(plain.pose_error.compute()).copy()
+
+    biased = DiffIKSolver(handles, DiffIKConfig(nullspace_gain=STABLE_GAIN))
+    dq_biased = biased.solve(biased.pose_error.compute()).copy()
+
+    added = dq_biased - dq_plain
+    assert np.linalg.norm(added) > 1e-3, "the secondary objective did nothing"
+
+    twist = biased.jacobian() @ added
+    assert np.linalg.norm(twist) < 1e-6
+
+
+def test_two_gains_reach_the_same_pose_by_different_joint_paths(
+    handles: RobotHandles,
+) -> None:
+    """The milestone criterion: same end-effector pose, different arm."""
+    q_off, x_off, _ = _converged_state(handles, 0.0)
+    q_on, x_on, _ = _converged_state(handles, STABLE_GAIN)
+
+    assert np.linalg.norm(q_on - q_off) > 1e-2
+    assert np.linalg.norm(x_on - x_off) < 1e-4
+
+
+def test_nullspace_pulls_the_posture_toward_the_reference(
+    handles: RobotHandles,
+) -> None:
+    q_off, _, _ = _converged_state(handles, 0.0)
+    q_on, _, _ = _converged_state(handles, STABLE_GAIN)
+
+    assert np.linalg.norm(q_on - handles.q_home) < np.linalg.norm(
+        q_off - handles.q_home
+    )
+
+
+def test_primary_task_still_converges_with_the_term_on(
+    handles: RobotHandles,
+) -> None:
+    _, _, solver = _converged_state(handles, STABLE_GAIN)
+    position_error, orientation_error = _error_norms(solver)
+    assert position_error < 1e-4
+    assert orientation_error < 1e-4
+
+
+def test_high_gain_needs_a_smaller_integration_dt(handles: RobotHandles) -> None:
+    """The secondary objective is a proportional controller integrated with an
+    explicit step, so it is the product nullspace_gain * integration_dt that has
+    to stay small, not the gain alone. At 5.0 and 1.0 the kinematic iteration
+    overshoots and grows without bound; the same gain is well behaved once the
+    step is shortened.
+
+    The closed loop is more forgiving, because the position actuators add their
+    own damping. That is why the viewer tolerates the gain of 5 the
+    documentation suggests.
+    """
+    q_unstable, _, _ = _converged_state(handles, 5.0, integration_dt=1.0)
+    assert np.linalg.norm(q_unstable - handles.q_home) > 1e3
+
+    q_stable, _, _ = _converged_state(handles, 5.0, integration_dt=0.3)
+    assert np.all(np.isfinite(q_stable))
+    assert np.linalg.norm(q_stable - handles.q_home) < 10.0
+
+
+def test_nullspace_follows_the_configured_reference_posture(
+    handles: RobotHandles,
+) -> None:
+    """Moving the reference posture along the redundant direction has to move
+    the arm, by exactly the projected amount.
+
+    The reference offsets are built from the actual nullspace of J rather than
+    picked by hand. Seven joints against a six-dimensional task leave a single
+    redundant direction, and an arbitrary posture offset is almost entirely
+    orthogonal to it: the projector removes nearly all of it and two very
+    different references produce the same command. Only motion along that one
+    direction survives, which is the whole point of the projector.
+    """
+    _place_target_from_posture(handles, ELBOW_OFFSET)
+
+    probe = DiffIKSolver(handles, DiffIKConfig(nullspace_gain=STABLE_GAIN))
+    probe.solve(probe.pose_error.compute())
+    # Last right-singular vector of a 6x7 matrix spans its nullspace.
+    nullspace_direction = np.linalg.svd(probe.jacobian())[2][-1]
+    assert np.linalg.norm(probe.jacobian() @ nullspace_direction) < 1e-9
+
+    q_now = handles.data.qpos[handles.qpos_ids]
+    commands = []
+    for sign in (+1.0, -1.0):
+        reference = tuple(float(v) for v in q_now + sign * nullspace_direction)
+        solver = DiffIKSolver(
+            handles,
+            DiffIKConfig(nullspace_gain=STABLE_GAIN, home_posture=reference),
+        )
+        commands.append(solver.solve(solver.pose_error.compute()).copy())
+
+    # The projector leaves a nullspace vector untouched, so the two commands
+    # differ by exactly twice the gain times that direction.
+    difference = commands[0] - commands[1]
+    expected = 2.0 * STABLE_GAIN * nullspace_direction
+    assert np.allclose(difference, expected, atol=1e-9)
