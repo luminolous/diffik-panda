@@ -7,6 +7,21 @@ Run it from the repository root:
 Drag the target in the viewer with Ctrl + right-click. Ctrl + left-click
 rotates it. Press Backspace to reset the arm and put the target back on the
 gripper.
+
+Seeing what --nullspace-gain does takes the right experiment. The arm starts at
+the home posture and the secondary objective pulls toward that same posture, so
+a short drag shows nothing: there is nothing to correct, and gain 0 and gain 5
+differ by about 0.02 rad.
+
+The term earns its place by stopping drift. Drag the target on a wide loop
+around the workspace and bring it back to where it started, then compare:
+
+    python scripts/run_viewer.py --nullspace-gain 0
+    python scripts/run_viewer.py --nullspace-gain 5
+
+With the gain off the elbow keeps whatever configuration the wandering left it
+in, ending up around 2.8 rad away from the home posture. With the gain on it
+comes back to within 0.01 rad, at the same gripper pose.
 """
 
 from __future__ import annotations

@@ -545,6 +545,45 @@ def test_high_gain_needs_a_smaller_integration_dt(handles: RobotHandles) -> None
     assert np.linalg.norm(q_stable - handles.q_home) < 10.0
 
 
+def test_nullspace_stops_the_posture_drifting_over_a_closed_path(
+    handles: RobotHandles,
+) -> None:
+    """What the term actually buys, in the form a viewer session shows it.
+
+    Starting at home and moving a little proves nothing: the pull points at the
+    posture the arm is already in. Send the target on a loop and bring it back
+    to where it started, and the difference is the whole point. Without the term
+    the arm keeps whatever configuration the wandering left behind; with it the
+    arm returns to the home posture at the same gripper pose.
+    """
+    loop = (
+        (0.20, 0.25, 0.10),
+        (-0.15, -0.40, 0.20),
+        (0.10, 0.30, -0.25),
+        (-0.15, -0.15, -0.05),
+    )
+
+    def wander(gain: float) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        solver = DiffIKSolver(handles, DiffIKConfig(nullspace_gain=gain))
+        model_mod.reset_to_home(handles)
+        model_mod.sync_target_to_site(handles)
+        for leg in loop:
+            handles.data.mocap_pos[handles.mocap_id] += np.array(leg)
+            _simulate(solver, 600)
+        return (
+            handles.data.qpos[handles.qpos_ids].copy(),
+            handles.data.site_xpos[handles.site_id].copy(),
+        )
+
+    q_drifted, x_drifted = wander(0.0)
+    q_held, x_held = wander(5.0)
+
+    assert np.linalg.norm(q_drifted - handles.q_home) > 1.0
+    assert np.linalg.norm(q_held - handles.q_home) < 0.1
+    # Same place, different arm.
+    assert np.linalg.norm(x_held - x_drifted) < 1e-2
+
+
 def test_nullspace_follows_the_configured_reference_posture(
     handles: RobotHandles,
 ) -> None:

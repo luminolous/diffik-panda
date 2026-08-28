@@ -84,6 +84,13 @@ class DiffIKSolver:
         The benchmark counts these: clipping alters the direction of motion,
         which is exactly what a QP formulation avoids."""
 
+    @property
+    def joint_velocity(self) -> NDArray[np.float64]:
+        """Joint velocity produced by the last solve. Exposed for the
+        benchmarks, which record its peak; the buffer is reused, so copy it if
+        you need to keep the value."""
+        return self._dq
+
     def jacobian(self) -> NDArray[np.float64]:
         """Current 6x7 site Jacobian, restricted to the arm columns.
 
