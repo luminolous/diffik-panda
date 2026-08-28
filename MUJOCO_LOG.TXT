@@ -1,0 +1,6 @@
+WARNING Fri Aug 28 19:37:47 2026: Attach conflict when attaching 'panda' to 'probe3', policy is 'warning'
+integrator: parent has 0 (default), child has 3, keeping parent value
+
+WARNING Fri Aug 28 19:38:12 2026: Attach conflict when attaching 'panda' to 'probe3', policy is 'warning'
+integrator: parent has 0 (default), child has 3, keeping parent value
+
