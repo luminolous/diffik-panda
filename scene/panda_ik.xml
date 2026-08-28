@@ -1,0 +1,58 @@
+<!--
+  IK scene for the vendored Franka Emika Panda.
+
+  The Panda is pulled in with <attach> rather than <include>. <include> merges
+  the child file textually, and MuJoCo then resolves the child's meshdir
+  ("assets") against this file's directory, which produces broken paths such as
+  "assets/scene/franka_emika_panda/link4.stl". <attach> compiles the child as a
+  submodel, so its asset paths stay relative to its own directory.
+
+  prefix="" keeps the original names, so joint1..joint7, actuator1..actuator8
+  and the "home" keyframe resolve unchanged.
+
+  The integrator is set explicitly. <attach> keeps the parent's value on
+  conflict, so without this line the child's implicitfast would silently fall
+  back to the default Euler integrator.
+
+  The end-effector site is not defined here. MJCF cannot add a child to a body
+  that came from another file ("repeated name 'hand' in body"), so diffik.model
+  adds it through MjSpec at load time instead of editing the vendored model.
+-->
+<mujoco model="panda_ik">
+  <compiler angle="radian"/>
+
+  <option integrator="implicitfast"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <model name="panda" file="franka_emika_panda/panda.xml"/>
+
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+
+    <attach model="panda" body="link0" prefix=""/>
+
+    <!--
+      Drag target. A mocap body has no joints and is a direct child of
+      worldbody, so the viewer can move it with Ctrl + right-click without the
+      solver fighting it. Collision is off so the target never pushes the arm.
+      The starting pos is overwritten at startup with the current site pose.
+    -->
+    <body name="target" pos="0.5 0 0.5" mocap="true">
+      <geom type="box" size="0.03 0.03 0.03" rgba="0.9 0.3 0.3 0.4"
+            contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+</mujoco>
