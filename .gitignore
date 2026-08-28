@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AGENTS
+.agents
+
+# Recorded video (the demo GIF under media/ is tracked, video is not)
+*.mp4
+
+# macOS
+.DS_Store
