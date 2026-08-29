@@ -493,6 +493,63 @@ def experiment_5(handles: RobotHandles, trajectory: ReachTrajectory) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# E6
+# ---------------------------------------------------------------------------
+
+# The whole study so far rests on one trajectory. If the band only exists at
+# that exact reach, the finding is a coincidence of the path rather than a
+# property of the solver, so the same grid is repeated either side of it.
+E6_RADII = (0.66, 0.68, 0.69, 0.70, 0.71, 0.72)
+E6_GAINS = (0.0, 2.0, 5.0)
+
+
+def experiment_6(handles: RobotHandles) -> dict:
+    rows = []
+    for radius in E6_RADII:
+        trajectory = ReachTrajectory.from_home(handles, peak_radius=radius)
+        for damping in E5_DAMPING:
+            for gain in E6_GAINS:
+                result = run_once(
+                    handles,
+                    trajectory,
+                    DiffIKConfig(damping=damping, nullspace_gain=gain),
+                )
+                row = {
+                    "peak_radius": radius,
+                    "damping": damping,
+                    "nullspace_gain": gain,
+                    **result.summary(),
+                }
+                # The final posture, not just its distance from home. Two
+                # different configurations can share a norm; only the angles
+                # themselves can show whether the failing runs land in one
+                # place.
+                for joint in range(7):
+                    row[f"final_joint{joint + 1}"] = float(result.qpos[-1, joint])
+                rows.append(row)
+
+    _write_csv(
+        OUTPUT_DIR / "radius_robustness.csv",
+        (
+            "peak_radius",
+            "damping",
+            "nullspace_gain",
+            "rms_position_error",
+            "rms_orientation_error",
+            "final_position_error",
+            "peak_dq",
+            "clipped_steps",
+            "peak_condition_number",
+            "max_distance_from_home",
+            "diverged",
+            *(f"final_joint{i + 1}" for i in range(7)),
+        ),
+        rows,
+    )
+    return {"rows": rows}
+
+
+# ---------------------------------------------------------------------------
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -566,6 +623,20 @@ def main(argv: list[str] | None = None) -> int:
     timings["E5_sweep_2d"] = time.perf_counter() - started
     diverged = sum(int(row["diverged"]) for row in e5["rows"])
     print(f"E5  {len(e5['rows'])} runs, {diverged} diverged")
+
+    started = time.perf_counter()
+    e6 = experiment_6(handles)
+    timings["E6_radius_robustness"] = time.perf_counter() - started
+    failing = [row for row in e6["rows"] if row["rms_position_error"] > 0.05]
+    print(f"E6  {len(e6['rows'])} runs, {len(failing)} failing")
+    for radius in E6_RADII:
+        at_radius = [
+            row
+            for row in failing
+            if row["peak_radius"] == radius and row["nullspace_gain"] == 0.0
+        ]
+        band = ", ".join(f"{row['damping']:.0e}" for row in at_radius)
+        print(f"    radius {radius:.2f}  gain 0 fails at [{band or 'none'}]")
 
     timings["total"] = sum(timings.values())
     (OUTPUT_DIR / "timings.json").write_text(

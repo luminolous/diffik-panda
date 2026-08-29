@@ -171,12 +171,25 @@ until the damping grows large enough to cost accuracy on its own: `1e-01`
 tracks worse than `1e-02`.
 
 The band is a property of the run at `nullspace_gain = 0`, which is what this
-sweep uses. Any gain from 0.5 up removes it. It does not, however, make the
-solver safe everywhere: at damping `1e-04` clipping persists at every gain and
-the conditioning gets worse as the gain rises, and a fresh isolated failure
+sweep uses. Any gain from 0.5 up removes it here. It does not, however, make
+the solver safe everywhere: at damping `1e-04` clipping persists at every gain
+and the conditioning gets worse as the gain rises, and a fresh isolated failure
 appears at gain 2. The low-damping velocity spike and the mid-band posture
-collapse are two different failures. `results/article/FACTS.md` carries the
-full 2D sweep.
+collapse are two different failures.
+
+Nor is `5e-04` to `5e-03` a fixed interval of damping. Repeating the sweep at
+other reaches shows the collapse does not occur at all below 0.70 m, and that
+it widens above it: four of seven damping values collapse at 0.70, five at
+0.71, six at 0.72. What generalises is not the interval but the mechanism. Near
+the edge of the orientation-constrained workspace the arm can come out of the
+singularity on either side of a fold, and the damping decides which. The losing
+side is the same posture every time: across 20 collapsed runs spanning three
+reaches, seven damping values and three gains, the final configurations agree to
+within 0.008 rad, with joint4 resting 2 mrad off its upper limit and joint2
+16 mrad off its own.
+
+`results/article/FACTS.md` carries the full 2D sweep, the reach study, and the
+ablation behind these claims.
 
 ### Against mink
 

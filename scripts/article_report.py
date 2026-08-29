@@ -17,7 +17,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import LogNorm
+from matplotlib.colors import ListedColormap, LogNorm
+from matplotlib.patches import Patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
@@ -33,10 +34,13 @@ FAILING = (1e-3, 0.0)
 HEALTHY = (1e-2, 0.0)
 CONTROL = (1e-3, 5.0)
 
+ARM_JOINT_LABELS = [f"joint{i + 1}" for i in range(7)]
+
 
 def load() -> dict:
     return {
         "sweep_2d": pd.read_csv(ARTICLE_DIR / "sweep_2d.csv"),
+        "radius": pd.read_csv(ARTICLE_DIR / "radius_robustness.csv"),
         "ablation": pd.read_csv(ARTICLE_DIR / "ablation.csv"),
         "traces": pd.read_csv(ARTICLE_DIR / "qpos_traces.csv"),
         "clip_first": pd.read_csv(ARTICLE_DIR / "clip_first_events.csv"),
@@ -169,6 +173,78 @@ def figure_sweep_2d(sweep: pd.DataFrame) -> None:
     fig.colorbar(mesh, ax=ax, label="RMS position error [m]")
     fig.tight_layout()
     fig.savefig(FIGURE_DIR / "sweep_2d.png", dpi=140)
+    plt.close(fig)
+
+
+JOINT_COLUMNS = [f"final_joint{i + 1}" for i in range(7)]
+
+# The collapse ends 2.67 rad from home, everything else at or below 1.6, so the
+# threshold sits in an empty gap rather than on a judgement call.
+COLLAPSE_DRIFT = 2.0
+FAILURE_RMS = 0.05
+
+
+def classify(radius_runs: pd.DataFrame) -> pd.Series:
+    """Label each run healthy, infeasible or collapsed.
+
+    Two different things fail here and they need separating. A run can miss the
+    target because the pose is simply out of reach at the peak, lag through the
+    middle of the trajectory and come home fine. That is not the phenomenon
+    under study. The collapse is the run that ends somewhere else entirely.
+    """
+    failed = radius_runs.rms_position_error > FAILURE_RMS
+    collapsed = radius_runs.max_distance_from_home > COLLAPSE_DRIFT
+    return pd.Series(
+        np.where(collapsed, "collapse", np.where(failed, "infeasible", "healthy")),
+        index=radius_runs.index,
+    )
+
+
+def figure_radius_robustness(radius_runs: pd.DataFrame) -> None:
+    labels = classify(radius_runs)
+    codes = labels.map({"healthy": 0, "infeasible": 1, "collapse": 2})
+    frame = radius_runs.assign(code=codes)
+
+    gains = sorted(frame.nullspace_gain.unique())
+    fig, axes = plt.subplots(1, len(gains), figsize=(4.6 * len(gains), 4.4),
+                             sharey=True)
+    colours = ListedColormap(["#dcedc8", "#ffd08a", "#2b2b2b"])
+
+    for ax, gain in zip(np.atleast_1d(axes), gains):
+        grid = (
+            frame[frame.nullspace_gain == gain]
+            .pivot(index="peak_radius", columns="damping", values="code")
+            .sort_index()
+        )
+        ax.pcolormesh(
+            np.arange(grid.shape[1] + 1),
+            np.arange(grid.shape[0] + 1),
+            grid.to_numpy(),
+            cmap=colours,
+            vmin=0,
+            vmax=2,
+            edgecolors="white",
+            linewidth=1,
+        )
+        ax.set_xticks(np.arange(grid.shape[1]) + 0.5)
+        ax.set_xticklabels([f"{d:.0e}" for d in grid.columns], rotation=45,
+                           fontsize=8)
+        ax.set_yticks(np.arange(grid.shape[0]) + 0.5)
+        ax.set_yticklabels([f"{r:.2f}" for r in grid.index])
+        ax.set_xlabel("damping")
+        ax.set_title(f"nullspace gain {gain:g}")
+
+    np.atleast_1d(axes)[0].set_ylabel("peak radius [m]")
+    handles = [
+        Patch(facecolor="#dcedc8", edgecolor="grey", label="tracks"),
+        Patch(facecolor="#ffd08a", edgecolor="grey",
+              label="target out of reach, returns home"),
+        Patch(facecolor="#2b2b2b", edgecolor="grey", label="posture collapse"),
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False)
+    fig.suptitle("Does the failure survive a different reach?")
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    fig.savefig(FIGURE_DIR / "radius_robustness.png", dpi=140)
     plt.close(fig)
 
 
@@ -459,6 +535,151 @@ def write_facts(data: dict) -> None:
         add("Every failing cell in the sweep sits at gain 0.")
     add("")
 
+    radius_runs = data["radius"].assign(mode=classify(data["radius"]))
+    collapse = radius_runs[radius_runs["mode"] == "collapse"]
+    healthy = radius_runs[radius_runs["mode"] == "healthy"]
+
+    add("## E6 Does any of this survive a different reach?")
+    add("")
+    add("`results/article/radius_robustness.csv`")
+    add("")
+    add(
+        "Everything above rests on one trajectory, reaching 0.70 m from the "
+        f"shoulder. E6 repeats the grid at {len(radius_runs.peak_radius.unique())} "
+        f"radii, {len(radius_runs)} runs in total, and records the final joint "
+        "angles as well as the summary."
+    )
+    add("")
+    add("### Two failures were being counted as one")
+    add("")
+    add(
+        "Separating them was necessary before the radius question could be "
+        "answered at all. A run can miss the target simply because the pose is "
+        "out of reach at the peak: it lags through the middle of the "
+        "trajectory, then comes home. That is the task being impossible, not "
+        "the solver choosing badly. The failure this study is about ends "
+        "somewhere else entirely."
+    )
+    add("")
+    add(
+        "The two are cleanly separable by where the run ends. The collapse "
+        f"reaches {collapse.max_distance_from_home.min():.3f} to "
+        f"{collapse.max_distance_from_home.max():.3f} rad from home; every "
+        "other run, failing or not, stays at or below "
+        f"{radius_runs[radius_runs['mode'] != 'collapse'].max_distance_from_home.max():.3f}. "
+        "There is nothing in between."
+    )
+    add("")
+    counts = radius_runs["mode"].value_counts()
+    add("| end state | runs |")
+    add("| --- | --- |")
+    for name in ("healthy", "infeasible", "collapse"):
+        add(f"| {name} | {int(counts.get(name, 0))} |")
+    add("")
+
+    add("### The collapse is one fixed configuration")
+    add("")
+    centroid = collapse[JOINT_COLUMNS].mean().to_numpy()
+    deviation = np.linalg.norm(
+        collapse[JOINT_COLUMNS].to_numpy() - centroid, axis=1
+    ).max()
+    add(
+        f"All {len(collapse)} collapsed runs, spanning "
+        f"{len(collapse.peak_radius.unique())} radii, "
+        f"{len(collapse.damping.unique())} damping values and "
+        f"{len(collapse.nullspace_gain.unique())} nullspace gains, end within "
+        f"{deviation:.4f} rad of each other. This is a stronger statement than "
+        "the matching drift norm: two different postures can share a norm, and "
+        "these do not merely share one, they are the same posture."
+    )
+    add("")
+    add("| joint | mean final angle [rad] | std [rad] | limit |")
+    add("| --- | --- | --- | --- |")
+    limits = {
+        "joint1": "±2.8973",
+        "joint2": "±1.7628",
+        "joint3": "±2.8973",
+        "joint4": "[-3.0718, -0.0698]",
+        "joint5": "±2.8973",
+        "joint6": "[-0.0175, 3.7525]",
+        "joint7": "±2.8973",
+    }
+    for index, name in enumerate(ARM_JOINT_LABELS):
+        column = JOINT_COLUMNS[index]
+        add(
+            f"| {name} | {collapse[column].mean():.4f} | "
+            f"{collapse[column].std():.5f} | {limits[name]} |"
+        )
+    add("")
+    add(
+        "joint4 comes to rest at "
+        f"{collapse.final_joint4.mean():.4f} rad against an upper limit of "
+        "-0.0698, and joint2 at "
+        f"{collapse.final_joint2.mean():.4f} against 1.7628. The arm ends "
+        "folded over onto two of its limits, and it is the same fold every "
+        "time. Healthy runs are equally consistent in the other direction: "
+        f"all {len(healthy)} of them finish within "
+        f"{np.linalg.norm(healthy[JOINT_COLUMNS].to_numpy() - healthy[JOINT_COLUMNS].mean().to_numpy(), axis=1).max():.5f} "
+        "rad of the home posture."
+    )
+    add("")
+
+    add("### The band does not survive unchanged, and this matters")
+    add("")
+    add("Collapsed runs out of 7 damping values, by radius and gain:")
+    add("")
+    grid = (
+        radius_runs.assign(collapsed=(radius_runs["mode"] == "collapse").astype(int))
+        .pivot_table(
+            index="peak_radius",
+            columns="nullspace_gain",
+            values="collapsed",
+            aggfunc="sum",
+        )
+        .sort_index()
+    )
+    add("| peak radius [m] | " + " | ".join(f"Kn {g:g}" for g in grid.columns) + " |")
+    add("| --- | " + " | ".join(["---"] * len(grid.columns)) + " |")
+    for radius, row in grid.iterrows():
+        add(f"| {radius:.2f} | " + " | ".join(str(int(v)) for v in row) + " |")
+    add("")
+    for gain in sorted(radius_runs.nullspace_gain.unique()):
+        for radius in sorted(radius_runs.peak_radius.unique()):
+            subset = collapse[
+                (collapse.nullspace_gain == gain) & (collapse.peak_radius == radius)
+            ]
+            if len(subset):
+                values = ", ".join(f"`{d:.0e}`" for d in sorted(subset.damping))
+                add(f"- radius {radius:.2f}, gain {gain:g}: {values}")
+    add("")
+    add(
+        "The collapse does not exist below 0.70 m. It appears at 0.70 and "
+        "widens with reach: four of seven damping values at 0.70, five at 0.71, "
+        "six at 0.72, all at gain 0. So the band reported for 0.70 is not a "
+        "coincidence of that one path, but neither is it a fixed interval of "
+        "damping. It is the boundary layer of a threshold in task difficulty, "
+        "and the damping decides which side of the fold the arm comes down on "
+        "only while the task sits near that threshold."
+    )
+    add("")
+    add(
+        "The secondary objective is not a general cure either. It clears every "
+        "collapse at 0.70 by gain 5, but at 0.72 gain 5 still collapses at "
+        "damping `1e-04` and `3e-04`, and at 0.70 gain 2 introduces a collapse "
+        "at `1e-04` that gain 0 does not have. Raising the gain moves the "
+        "vulnerable region rather than removing it."
+    )
+    add("")
+    add(
+        "**What can honestly be claimed:** near the edge of the "
+        "orientation-constrained workspace there is a regime where the damping "
+        "chooses between two outcomes that are not on a continuum, and the "
+        "losing outcome is one specific posture the arm cannot leave. What "
+        "cannot be claimed is that damped least squares has a failure band at "
+        "some fixed interval of lambda."
+    )
+    add("")
+
     add("## Environment")
     add("")
     add(f"- mujoco {metadata.version('mujoco')}")
@@ -554,6 +775,7 @@ def main(argv: list[str] | None = None) -> int:
     figure_failure_band(data["sweep_2d"])
     figure_divergence(data["traces"], data["divergence"])
     figure_sweep_2d(data["sweep_2d"])
+    figure_radius_robustness(data["radius"])
     write_facts(data)
 
     print(f"figures written to {FIGURE_DIR}")

@@ -114,6 +114,66 @@ Clipping persists at every gain, and the conditioning gets *worse* as the gain r
 
 Damping `1e-04` at gain 2 fails the same way, with the same 2.67 rad drift, while both its neighbours in gain are healthy. The failure is not monotone in the gain either: raising the secondary objective does not simply make things safer, it moves where the bad pocket sits.
 
+## E6 Does any of this survive a different reach?
+
+`results/article/radius_robustness.csv`
+
+Everything above rests on one trajectory, reaching 0.70 m from the shoulder. E6 repeats the grid at 6 radii, 126 runs in total, and records the final joint angles as well as the summary.
+
+### Two failures were being counted as one
+
+Separating them was necessary before the radius question could be answered at all. A run can miss the target simply because the pose is out of reach at the peak: it lags through the middle of the trajectory, then comes home. That is the task being impossible, not the solver choosing badly. The failure this study is about ends somewhere else entirely.
+
+The two are cleanly separable by where the run ends. The collapse reaches 2.671 to 2.673 rad from home; every other run, failing or not, stays at or below 1.599. There is nothing in between.
+
+| end state | runs |
+| --- | --- |
+| healthy | 93 |
+| infeasible | 13 |
+| collapse | 20 |
+
+### The collapse is one fixed configuration
+
+All 20 collapsed runs, spanning 3 radii, 7 damping values and 3 nullspace gains, end within 0.0079 rad of each other. This is a stronger statement than the matching drift norm: two different postures can share a norm, and these do not merely share one, they are the same posture.
+
+| joint | mean final angle [rad] | std [rad] | limit |
+| --- | --- | --- | --- |
+| joint1 | 0.0001 | 0.00069 | ±2.8973 |
+| joint2 | 1.7472 | 0.00019 | ±1.7628 |
+| joint3 | 0.0066 | 0.00042 | ±2.8973 |
+| joint4 | -0.0678 | 0.00004 | [-3.0718, -0.0698] |
+| joint5 | 0.0050 | 0.00242 | ±2.8973 |
+| joint6 | 0.2188 | 0.00068 | [-0.0175, 3.7525] |
+| joint7 | -0.7824 | 0.00289 | ±2.8973 |
+
+joint4 comes to rest at -0.0678 rad against an upper limit of -0.0698, and joint2 at 1.7472 against 1.7628. The arm ends folded over onto two of its limits, and it is the same fold every time. Healthy runs are equally consistent in the other direction: all 93 of them finish within 0.00118 rad of the home posture.
+
+### The band does not survive unchanged, and this matters
+
+Collapsed runs out of 7 damping values, by radius and gain:
+
+| peak radius [m] | Kn 0 | Kn 2 | Kn 5 |
+| --- | --- | --- | --- |
+| 0.66 | 0 | 0 | 0 |
+| 0.68 | 0 | 0 | 0 |
+| 0.69 | 0 | 0 | 0 |
+| 0.70 | 4 | 1 | 0 |
+| 0.71 | 5 | 0 | 0 |
+| 0.72 | 6 | 2 | 2 |
+
+- radius 0.70, gain 0: `5e-04`, `1e-03`, `3e-03`, `5e-03`
+- radius 0.71, gain 0: `5e-04`, `1e-03`, `3e-03`, `5e-03`, `1e-02`
+- radius 0.72, gain 0: `1e-04`, `3e-04`, `5e-04`, `3e-03`, `5e-03`, `1e-02`
+- radius 0.70, gain 2: `1e-04`
+- radius 0.72, gain 2: `1e-04`, `5e-04`
+- radius 0.72, gain 5: `1e-04`, `3e-04`
+
+The collapse does not exist below 0.70 m. It appears at 0.70 and widens with reach: four of seven damping values at 0.70, five at 0.71, six at 0.72, all at gain 0. So the band reported for 0.70 is not a coincidence of that one path, but neither is it a fixed interval of damping. It is the boundary layer of a threshold in task difficulty, and the damping decides which side of the fold the arm comes down on only while the task sits near that threshold.
+
+The secondary objective is not a general cure either. It clears every collapse at 0.70 by gain 5, but at 0.72 gain 5 still collapses at damping `1e-04` and `3e-04`, and at 0.70 gain 2 introduces a collapse at `1e-04` that gain 0 does not have. Raising the gain moves the vulnerable region rather than removing it.
+
+**What can honestly be claimed:** near the edge of the orientation-constrained workspace there is a regime where the damping chooses between two outcomes that are not on a continuum, and the losing outcome is one specific posture the arm cannot leave. What cannot be claimed is that damped least squares has a failure band at some fixed interval of lambda.
+
 ## Environment
 
 - mujoco 3.12.0
@@ -129,12 +189,13 @@ Damping `1e-04` at gain 2 fails the same way, with the same 2.67 rad drift, whil
 
 | experiment | seconds |
 | --- | --- |
-| E1_clip_forensics | 1.81 |
-| E2_ablation | 1.56 |
-| E3_traces | 1.38 |
+| E1_clip_forensics | 1.78 |
+| E2_ablation | 1.45 |
+| E3_traces | 1.31 |
 | E4_divergence | 0.00 |
-| E5_sweep_2d | 13.47 |
-| **total** | **18.22** |
+| E5_sweep_2d | 13.05 |
+| E6_radius_robustness | 38.69 |
+| **total** | **56.28** |
 
 ## Replication of the externally supplied result
 
