@@ -680,6 +680,73 @@ def write_facts(data: dict) -> None:
     )
     add("")
 
+    add("## Choosing the outcome variable")
+    add("")
+    add(
+        "`results/article/damping_end_state.csv` reruns the committed sweep's "
+        "damping values with the drift recorded, because "
+        "`results/damping_sweep.csv` stores the per-step error but not qpos."
+    )
+    add("")
+    add(
+        "RMS position error is the wrong variable to draw conclusions from "
+        "here, and it was the one this repository originally used. It mixes two "
+        "different things: how far the arm ended up from where it should be, "
+        "and how much it lagged on the way. Over the "
+        f"{len(radius_runs)} runs of the reach study the three end states span "
+        "these ranges:"
+    )
+    add("")
+    add("| end state | RMS position [m] | final error [m] | max drift [rad] |")
+    add("| --- | --- | --- | --- |")
+    for name in ("healthy", "infeasible", "collapse"):
+        subset = radius_runs[radius_runs["mode"] == name]
+        if not len(subset):
+            continue
+        add(
+            f"| {name} | {subset.rms_position_error.min():.5f} to "
+            f"{subset.rms_position_error.max():.5f} | "
+            f"{subset.final_position_error.min():.5f} to "
+            f"{subset.final_position_error.max():.5f} | "
+            f"{subset.max_distance_from_home.min():.3f} to "
+            f"{subset.max_distance_from_home.max():.3f} |"
+        )
+    add("")
+    non_collapse = radius_runs[radius_runs["mode"] != "collapse"]
+    healthy_top = radius_runs[radius_runs["mode"] == "healthy"].rms_position_error.max()
+    infeasible_low = radius_runs[
+        radius_runs["mode"] == "infeasible"
+    ].rms_position_error.min()
+    add(
+        "The RMS ranges do not overlap on this set of runs, but they very "
+        f"nearly do: {healthy_top:.5f} against {infeasible_low:.5f} at the "
+        f"first boundary, a margin of {infeasible_low / healthy_top:.2f}x, and "
+        f"{radius_runs[radius_runs['mode'] == 'infeasible'].rms_position_error.max():.5f} "
+        f"against {collapse.rms_position_error.min():.5f} at the second. Any "
+        "threshold drawn there is a judgement call, and the quantity being "
+        "thresholded still conflates two mechanisms. The other two variables "
+        "need no judgement. Final error is either "
+        f"{non_collapse.final_position_error.min():.5f} to "
+        f"{non_collapse.final_position_error.max():.5f} m or "
+        f"{collapse.final_position_error.min():.5f} to "
+        f"{collapse.final_position_error.max():.5f} m, a factor of "
+        f"{collapse.final_position_error.min() / non_collapse.final_position_error.max():.0f} "
+        "with nothing between; drift is either at most "
+        f"{non_collapse.max_distance_from_home.max():.3f} rad or between "
+        f"{collapse.max_distance_from_home.min():.3f} and "
+        f"{collapse.max_distance_from_home.max():.3f}."
+    )
+    add("")
+    add(
+        "One caveat on the pair. Final error separates the collapse from "
+        "everything else and nothing else: a run whose target was briefly out "
+        "of reach comes home like a healthy one, so both finish at about "
+        "0.0066 m. Telling those two apart is the one job RMS does well. The "
+        "end states in this document therefore use drift for the collapse and "
+        "RMS only for the infeasible case."
+    )
+    add("")
+
     add("## Environment")
     add("")
     add(f"- mujoco {metadata.version('mujoco')}")

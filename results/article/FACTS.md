@@ -174,6 +174,22 @@ The secondary objective is not a general cure either. It clears every collapse a
 
 **What can honestly be claimed:** near the edge of the orientation-constrained workspace there is a regime where the damping chooses between two outcomes that are not on a continuum, and the losing outcome is one specific posture the arm cannot leave. What cannot be claimed is that damped least squares has a failure band at some fixed interval of lambda.
 
+## Choosing the outcome variable
+
+`results/article/damping_end_state.csv` reruns the committed sweep's damping values with the drift recorded, because `results/damping_sweep.csv` stores the per-step error but not qpos.
+
+RMS position error is the wrong variable to draw conclusions from here, and it was the one this repository originally used. It mixes two different things: how far the arm ended up from where it should be, and how much it lagged on the way. Over the 126 runs of the reach study the three end states span these ranges:
+
+| end state | RMS position [m] | final error [m] | max drift [rad] |
+| --- | --- | --- | --- |
+| healthy | 0.00783 to 0.04671 | 0.00655 to 0.00662 | 0.534 to 1.481 |
+| infeasible | 0.06822 to 0.13395 | 0.00655 to 0.00656 | 1.495 to 1.599 |
+| collapse | 0.16318 to 0.21027 | 0.43013 to 0.43026 | 2.671 to 2.673 |
+
+The RMS ranges do not overlap on this set of runs, but they very nearly do: 0.04671 against 0.06822 at the first boundary, a margin of 1.46x, and 0.13395 against 0.16318 at the second. Any threshold drawn there is a judgement call, and the quantity being thresholded still conflates two mechanisms. The other two variables need no judgement. Final error is either 0.00655 to 0.00662 m or 0.43013 to 0.43026 m, a factor of 65 with nothing between; drift is either at most 1.599 rad or between 2.671 and 2.673.
+
+One caveat on the pair. Final error separates the collapse from everything else and nothing else: a run whose target was briefly out of reach comes home like a healthy one, so both finish at about 0.0066 m. Telling those two apart is the one job RMS does well. The end states in this document therefore use drift for the collapse and RMS only for the infeasible case.
+
 ## Environment
 
 - mujoco 3.12.0
@@ -189,13 +205,14 @@ The secondary objective is not a general cure either. It clears every collapse a
 
 | experiment | seconds |
 | --- | --- |
-| E1_clip_forensics | 1.78 |
-| E2_ablation | 1.45 |
-| E3_traces | 1.31 |
+| E1_clip_forensics | 1.75 |
+| E2_ablation | 1.46 |
+| E3_traces | 1.37 |
 | E4_divergence | 0.00 |
-| E5_sweep_2d | 13.05 |
-| E6_radius_robustness | 38.69 |
-| **total** | **56.28** |
+| E5_sweep_2d | 36.76 |
+| E6_radius_robustness | 90.82 |
+| E7_damping_end_state | 3.28 |
+| **total** | **135.45** |
 
 ## Replication of the externally supplied result
 

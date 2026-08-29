@@ -550,6 +550,55 @@ def experiment_6(handles: RobotHandles) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# E7
+# ---------------------------------------------------------------------------
+
+# The damping values of the committed sweep, rerun so the README can report an
+# end state instead of an RMS. results/damping_sweep.csv records per-step error
+# but not qpos, so the drift that separates the regimes cannot be recovered
+# from it.
+E7_DAMPING = (1e-6, 1e-5, 1e-4, 3e-4, 5e-4, 1e-3, 3e-3, 5e-3, 7e-3, 1e-2, 1e-1)
+
+# The collapse ends 2.67 rad from home and everything else at or below 1.60, so
+# this threshold sits in an empty gap. The RMS bound only separates a run that
+# lagged behind an unreachable target from one that tracked it.
+COLLAPSE_DRIFT = 2.0
+FAILURE_RMS = 0.05
+
+
+def experiment_7(handles: RobotHandles, trajectory: ReachTrajectory) -> dict:
+    rows = []
+    for damping in E7_DAMPING:
+        result = run_once(handles, trajectory, DiffIKConfig(damping=damping))
+        summary = result.summary()
+        if summary["max_distance_from_home"] > COLLAPSE_DRIFT:
+            end_state = "collapse"
+        elif summary["rms_position_error"] > FAILURE_RMS:
+            end_state = "infeasible"
+        else:
+            end_state = "healthy"
+        rows.append({"damping": damping, "end_state": end_state, **summary})
+
+    _write_csv(
+        OUTPUT_DIR / "damping_end_state.csv",
+        (
+            "damping",
+            "end_state",
+            "max_distance_from_home",
+            "final_position_error",
+            "rms_position_error",
+            "rms_orientation_error",
+            "peak_dq",
+            "clipped_steps",
+            "peak_condition_number",
+            "diverged",
+        ),
+        rows,
+    )
+    return {"rows": rows}
+
+
+# ---------------------------------------------------------------------------
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -637,6 +686,17 @@ def main(argv: list[str] | None = None) -> int:
         ]
         band = ", ".join(f"{row['damping']:.0e}" for row in at_radius)
         print(f"    radius {radius:.2f}  gain 0 fails at [{band or 'none'}]")
+
+    started = time.perf_counter()
+    e7 = experiment_7(handles, trajectory)
+    timings["E7_damping_end_state"] = time.perf_counter() - started
+    print("E7  end state of the committed sweep's damping values")
+    for row in e7["rows"]:
+        print(
+            f"    {row['damping']:.0e}  {row['end_state']:>10}  "
+            f"drift {row['max_distance_from_home']:.3f}  "
+            f"final {row['final_position_error']:.5f}"
+        )
 
     timings["total"] = sum(timings.values())
     (OUTPUT_DIR / "timings.json").write_text(

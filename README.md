@@ -121,21 +121,41 @@ when only position is constrained, but this path holds the orientation fixed as
 well, and past roughly 0.70 m that pose stops being reachable at all. Sitting
 on that edge is what makes the damping visible.
 
-From `results/damping_sweep.csv`:
+A run ends in one of two places. Either the arm comes back to the home posture
+and the target with it, or it comes out of the reach folded onto two of its
+joint limits and stays there. Nothing lands in between, so the outcome is
+reported as a state rather than as an average.
 
-| damping | RMS position [m] | RMS orientation [rad] | peak \|dq\| [rad/s] | clipped steps | peak cond(J) |
-| --- | --- | --- | --- | --- | --- |
-| `1e-06` | 0.01452 | 0.02541 | 10.65 | 12 | 40,568 |
-| `1e-05` | 0.01452 | 0.02541 | 10.17 | 12 | 40,472 |
-| `1e-04` | 0.01451 | 0.02540 | 2.18 | 12 | 32,681 |
-| `3e-04` | 0.01364 | 0.02409 | 1.07 | 10 | 12,979 |
-| `5e-04` | 0.17580 | 0.68553 | 3.07 | 1145 | 128,652 |
-| `1e-03` | 0.17572 | 0.68526 | 3.07 | 1140 | 693,352 |
-| `3e-03` | 0.17538 | 0.68455 | 3.06 | 1140 | 1,572,330 |
-| `5e-03` | 0.17483 | 0.68299 | 3.05 | 1140 | 1,572,210 |
-| `7e-03` | 0.00887 | 0.01502 | 0.10 | 0 | 2,280 |
-| `1e-02` | 0.00888 | 0.01502 | 0.08 | 0 | 580 |
-| `1e-01` | 0.01202 | 0.01508 | 0.06 | 0 | 57 |
+From `results/article/damping_end_state.csv`:
+
+| damping | end state | drift from home [rad] | final error [m] | peak \|dq\| [rad/s] | clipped steps | RMS position [m] |
+| --- | --- | --- | --- | --- | --- | --- |
+| `1e-06` | healthy | 1.400 | 0.00657 | 10.65 | 12 | 0.01452 |
+| `1e-05` | healthy | 1.400 | 0.00657 | 10.17 | 12 | 0.01452 |
+| `1e-04` | healthy | 1.400 | 0.00657 | 2.18 | 12 | 0.01451 |
+| `3e-04` | healthy | 1.399 | 0.00657 | 1.07 | 10 | 0.01364 |
+| `5e-04` | **collapse** | 2.673 | 0.43014 | 3.07 | 1145 | 0.17580 |
+| `1e-03` | **collapse** | 2.673 | 0.43017 | 3.07 | 1140 | 0.17572 |
+| `3e-03` | **collapse** | 2.673 | 0.43014 | 3.06 | 1140 | 0.17538 |
+| `5e-03` | **collapse** | 2.673 | 0.43013 | 3.05 | 1140 | 0.17483 |
+| `7e-03` | healthy | 1.362 | 0.00657 | 0.10 | 0 | 0.00887 |
+| `1e-02` | healthy | 1.341 | 0.00657 | 0.08 | 0 | 0.00888 |
+| `1e-01` | healthy | 1.078 | 0.00642 | 0.06 | 0 | 0.01202 |
+
+Drift is the largest `||q - q_home||` reached during the run, final error the
+position error at the last step. Both split the table in two with a wide gap
+and nothing inside it: across all 126 runs of the reach study, drift is either
+at most 1.60 rad or between 2.671 and 2.673, and the final error is either
+about 0.0066 m or about 0.4301 m, a factor of 65 apart.
+
+RMS position error is kept as the last column because the rest of this
+repository reports it and `results/damping_sweep.csv` records it per step, but
+no conclusion here rests on it. It cannot separate these regimes. A run whose
+target is simply out of reach lags through the middle of the trajectory and
+still comes home fine, and its RMS lands between the healthy and collapsed
+values with no gap on either side. Averaged over a trajectory, "the arm ended
+up somewhere else" and "the target was briefly unreachable" look like the same
+number. `results/article/FACTS.md` gives the three ranges.
 
 There are three regimes rather than one gradient.
 
@@ -143,9 +163,9 @@ Below about `3e-04` the solver is under-damped. The joint velocity spikes at the
 singularity, up to 10.65 rad/s, clipping engages for a dozen steps, and the arm
 recovers: the run ends at 0.0066 m of error.
 
-Between `5e-04` and `5e-03` the run fails. The position RMS jumps by an order of
-magnitude and the clip count goes from a dozen steps to over eleven hundred.
-The interesting part is where the failure happens. At `1e-03` the arm looks fine
+Between `5e-04` and `5e-03` the run collapses. The final error goes from
+0.0066 m to 0.4301 m and the arm ends 2.673 rad from home instead of 1.40. The
+interesting part is where the failure happens. At `1e-03` the arm looks fine
 crossing the singularity, then degrades behind it, reaching its worst error of
 0.433 m at t = 5.62 s and finishing there at 0.430 m. At that moment `cond(J)`
 is back down around 32, so the arm is not in a singularity.
@@ -158,17 +178,16 @@ term, which takes the final error to 0.0066 m whether the clipping is on or
 off. The ordering agrees. The failing run parts company with a healthy one at
 step 1401, and the first clip does not happen until step 1860, 459 steps later.
 
-The failure is posture drift. `||q - q_home||` separates the two outcomes
-cleanly: every failing run in the study reaches 2.67 rad, every healthy one
-stays at or below 1.40. Crossing the singularity, the redundant degree of
+The failure is posture. Crossing the singularity, the redundant degree of
 freedom is free to settle either side of a fold, and with no secondary
 objective holding it, some damping values settle on the wrong side and cannot
 get back. The clipping that follows is a symptom of the posture the arm has
 already reached.
 
-From about `7e-03` upward there is no clipping and the lowest tracking error,
-until the damping grows large enough to cost accuracy on its own: `1e-01`
-tracks worse than `1e-02`.
+From about `7e-03` upward there is no clipping, and the run ends where the
+healthy runs end. Raising the damping further does cost something, but not the
+outcome: `1e-01` ends at the same 0.0064 m while its RMS over the trajectory is
+worse than `1e-02`.
 
 The band is a property of the run at `nullspace_gain = 0`, which is what this
 sweep uses. Any gain from 0.5 up removes it here. It does not, however, make
@@ -199,21 +218,24 @@ timestep, same 1 rad/s velocity bound: the DLS runs scale `dq` down to reach
 that bound after solving, mink receives it as a constraint. From
 `results/mink_comparison.csv`:
 
-| method | RMS position [m] | RMS orientation [rad] | peak \|dq\| [rad/s] | clipped steps |
-| --- | --- | --- | --- | --- |
-| DLS `1e-04` | 0.01451 | 0.02540 | 1.000 | 12 |
-| DLS `1e-03` | 0.17434 | 0.68326 | 1.000 | 1140 |
-| DLS `1e-02` | 0.00888 | 0.01502 | 0.077 | 0 |
-| mink | 0.00937 | 0.01479 | 0.055 | 0 |
+| method | end state | final error [m] | peak \|dq\| [rad/s] | clipped steps | RMS position [m] |
+| --- | --- | --- | --- | --- | --- |
+| DLS `1e-04` | healthy | 0.00657 | 1.000 | 12 | 0.01451 |
+| DLS `1e-03` | **collapse** | 0.43009 | 1.000 | 1140 | 0.17434 |
+| DLS `1e-02` | healthy | 0.00657 | 0.077 | 0 | 0.00888 |
+| mink | healthy | 0.00656 | 0.055 | 0 | 0.00937 |
 
 mink never clips. Crossing the singularity it asks for a peak `|dq|` of 0.016
 rad/s against 0.403 for DLS at `1e-04`, a factor of 25, for comparable tracking
 error. Its final error, 0.00656 m, matches the best-tuned DLS run to five
 decimal places.
 
-The honest summary is not that the QP tracks better. Well-tuned damped least
-squares tracks marginally better here, and part of even that gap is the posture
-task mink carries and these DLS runs do not. What the QP buys is that there is
+The honest summary is not that the QP tracks better. Three of these four runs
+end in the same place, within 0.00001 m of each other, and the RMS column
+separates them only by how much each lagged along the way: on that measure
+well-tuned damped least squares is marginally ahead, and part of even that gap
+is the posture task mink carries and these DLS runs do not. What the QP buys is
+that there is
 no tuning to get wrong. The damped solver reaches the same quality only once
 you have found a damping above the failure band, and a run inside that band
 gives no warning: it tracks normally right up to the singularity and only
