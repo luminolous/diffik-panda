@@ -299,6 +299,96 @@ def test_commands_stay_inside_the_joint_limits(handles: RobotHandles) -> None:
         assert np.all(command <= solver.upper_limits + 1e-9)
 
 
+def test_clipping_can_be_disabled(handles: RobotHandles) -> None:
+    """With the clip off the setpoint is allowed past the joint range.
+
+    This is what the ablation needs: a run where the commanded direction is
+    never redirected along a limit surface. It does not let the arm itself
+    leave its range. MuJoCo clamps data.ctrl to each actuator's ctrlrange, which
+    equals the joint range for this model, and it does so without rewriting
+    data.ctrl, which is why the assertion below can still see the raw value.
+    """
+    model_mod.reset_to_home(handles)
+    model_mod.sync_target_to_site(handles)
+    handles.data.mocap_pos[handles.mocap_id] = UNREACHABLE_TARGET
+
+    solver = DiffIKSolver(
+        handles, DiffIKConfig(damping=1e-2, clip_joint_limits=False)
+    )
+    went_out_of_range = False
+    for _ in range(300):
+        solver.step()
+        command = handles.data.ctrl[handles.act_ids]
+        went_out_of_range |= bool(
+            np.any(command < solver.lower_limits - 1e-9)
+            or np.any(command > solver.upper_limits + 1e-9)
+        )
+        mujoco.mj_step(handles.model, handles.data)
+
+    assert went_out_of_range
+    assert np.all(np.isfinite(handles.data.qpos))
+
+
+def test_disabled_clipping_reports_nothing_clipped(handles: RobotHandles) -> None:
+    """The counters have to describe what actually happened, otherwise the
+    ablation would credit the clip for steps where it never ran."""
+    model_mod.reset_to_home(handles)
+    model_mod.sync_target_to_site(handles)
+    handles.data.mocap_pos[handles.mocap_id] = UNREACHABLE_TARGET
+
+    solver = DiffIKSolver(
+        handles, DiffIKConfig(damping=1e-2, clip_joint_limits=False)
+    )
+    for _ in range(200):
+        solver.step()
+        mujoco.mj_step(handles.model, handles.data)
+        assert solver.clipped_last_step is False
+        assert not solver.clipped_joints.any()
+        assert np.all(solver.clip_overshoot == 0.0)
+
+
+def test_clip_instrumentation_matches_what_the_clip_removed(
+    handles: RobotHandles,
+) -> None:
+    """clip_overshoot must equal the amount taken off the setpoint, per joint,
+    with the sign saying which limit was hit."""
+    model_mod.reset_to_home(handles)
+    model_mod.sync_target_to_site(handles)
+    handles.data.mocap_pos[handles.mocap_id] = UNREACHABLE_TARGET
+
+    solver = DiffIKSolver(handles, DiffIKConfig())
+    seen_clip = False
+    for _ in range(300):
+        solver.step()
+        command = handles.data.ctrl[handles.act_ids]
+
+        assert np.array_equal(solver.clipped_joints, solver.clip_overshoot != 0.0)
+        assert solver.clipped_last_step == bool(solver.clipped_joints.any())
+
+        for joint in np.flatnonzero(solver.clipped_joints):
+            seen_clip = True
+            overshoot = solver.clip_overshoot[joint]
+            if overshoot > 0:
+                assert command[joint] == pytest.approx(solver.upper_limits[joint])
+            else:
+                assert command[joint] == pytest.approx(solver.lower_limits[joint])
+
+        mujoco.mj_step(handles.model, handles.data)
+
+    assert seen_clip, "the unreachable target should have forced a clip"
+
+
+def test_clip_buffers_are_reused(handles: RobotHandles) -> None:
+    solver = DiffIKSolver(handles, DiffIKConfig())
+    _place_target(handles, NEAR_TARGET_OFFSET)
+
+    joints, overshoot = solver.clipped_joints, solver.clip_overshoot
+    solver.step()
+    assert solver.clipped_joints is joints
+    assert solver.clip_overshoot is overshoot
+    assert joints.shape == (7,) and overshoot.shape == (7,)
+
+
 def test_clipping_is_reported(handles: RobotHandles) -> None:
     """The benchmark counts clipped steps, so the flag has to be honest in both
     directions."""
@@ -385,6 +475,7 @@ def test_config_defaults_match_the_specification() -> None:
     assert config.integration_dt == 1.0
     assert config.nullspace_gain == 0.0
     assert config.max_angvel == 0.0
+    assert config.clip_joint_limits is True
 
 
 def test_config_is_frozen() -> None:

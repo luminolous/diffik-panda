@@ -84,6 +84,16 @@ class DiffIKSolver:
         The benchmark counts these: clipping alters the direction of motion,
         which is exactly what a QP formulation avoids."""
 
+        self.clipped_joints = np.zeros(_ARM_DOF, dtype=bool)
+        """Which joints the clip touched on the last step. Reused between steps;
+        copy it to keep a value. A run-level count says that clipping happened,
+        this says where, which is what separates one joint jamming from the
+        whole arm saturating."""
+
+        self.clip_overshoot = np.zeros(_ARM_DOF, dtype=np.float64)
+        """How far past its limit each joint's setpoint reached before the clip,
+        in radians, signed. Reused between steps."""
+
     @property
     def joint_velocity(self) -> NDArray[np.float64]:
         """Joint velocity produced by the last solve. Exposed for the
@@ -201,9 +211,21 @@ class DiffIKSolver:
         # buffer and the result is written to ctrl. Clipping in place through
         # self._q[qpos_ids] would silently discard the result.
         np.take(self._q, handles.qpos_ids, out=self._q_unclipped)
-        np.clip(
-            self._q_unclipped, self.lower_limits, self.upper_limits, out=self._q_arm
-        )
-        self.clipped_last_step = bool(np.any(self._q_arm != self._q_unclipped))
+
+        if self.config.clip_joint_limits:
+            np.clip(
+                self._q_unclipped, self.lower_limits, self.upper_limits, out=self._q_arm
+            )
+            # Per-joint record of what the clip removed. The sign says which way
+            # the setpoint was heading: positive means it was pushed back down
+            # from the upper limit, negative up from the lower one.
+            np.subtract(self._q_unclipped, self._q_arm, out=self.clip_overshoot)
+            np.not_equal(self.clip_overshoot, 0.0, out=self.clipped_joints)
+        else:
+            np.copyto(self._q_arm, self._q_unclipped)
+            self.clip_overshoot.fill(0.0)
+            self.clipped_joints.fill(False)
+
+        self.clipped_last_step = bool(self.clipped_joints.any())
 
         data.ctrl[handles.act_ids] = self._q_arm

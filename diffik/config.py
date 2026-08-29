@@ -31,6 +31,18 @@ class DiffIKConfig:
     whole vector preserves its direction, unlike the joint-limit clipping that
     happens after integration."""
 
+    clip_joint_limits: bool = True
+    """Whether the integrated setpoint is clipped to the joint limits before it
+    is written to data.ctrl. Setting this to False is an experiment, not a
+    tuning option: it is how the ablation separates a failure caused by clipping
+    from one caused by the posture the arm drifted into.
+
+    Turning it off does not let the arm leave its joint range. MuJoCo clamps
+    data.ctrl to each actuator's ctrlrange, which for this model equals the
+    joint range, and the limit constraints in the solver still hold the arm
+    back. What changes is that the setpoint may sit outside the range and keep
+    pushing, instead of being redirected along the limit surface."""
+
     home_posture: tuple[float, ...] | None = None
     """Reference posture for the nullspace term. None means use the home
     keyframe carried by RobotHandles. A tuple rather than an array so the
