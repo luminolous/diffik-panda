@@ -1,0 +1,32 @@
+{
+  "threshold_rad": 0.01,
+  "separated": true,
+  "divergence_step": 1401,
+  "divergence_time": 2.801999999999913,
+  "separation_at_divergence_rad": 0.010120572735666529,
+  "dominant_joint": "joint4",
+  "dominant_joint_difference_rad": 0.008242730931492193,
+  "per_joint_difference_rad": {
+    "joint1": 1.783432136045419e-06,
+    "joint2": 0.004498184008958295,
+    "joint3": 3.5313608123357693e-07,
+    "joint4": 0.008242730931492193,
+    "joint5": 1.1413342616414996e-06,
+    "joint6": 0.003774879460510139,
+    "joint7": 6.009408879403821e-07
+  },
+  "condition_number": {
+    "damping_1e-3": 84.46487827083784,
+    "damping_1e-2": 80.31582412233794
+  },
+  "distance_from_home_rad": {
+    "damping_1e-3": 1.1741321766599957,
+    "damping_1e-2": 1.1640462958852258
+  },
+  "target_radius_m": 0.698785932450225,
+  "first_clip_step_damping_1e-3": 1860,
+  "first_clip_time_damping_1e-3": 3.719999999999812,
+  "first_clip_joint_damping_1e-3": "joint4",
+  "divergence_precedes_first_clip": true,
+  "steps_between_divergence_and_first_clip": 459
+}

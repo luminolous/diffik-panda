@@ -1,0 +1,7 @@
+damping,total_clip_events,clipped_steps,first_clip_step,first_clip_time,first_clip_joint,first_clip_side,distinct_joints_clipped
+0.0003,10,10,1489,2.978,joint4,upper,joint4
+0.0005,1774,1145,1489,2.978,joint4,upper,joint2 joint4 joint6
+0.001,1769,1140,1860,3.72,joint4,upper,joint2 joint4 joint6
+0.003,1765,1140,1860,3.72,joint4,upper,joint2 joint4 joint6
+0.005,1757,1140,1860,3.72,joint4,upper,joint2 joint4 joint6
+0.007,0,0,,,,,

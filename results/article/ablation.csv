@@ -1,0 +1,6 @@
+label,rms_position_error,rms_orientation_error,final_position_error,peak_dq,clipped_steps,peak_condition_number,max_distance_from_home,diverged
+baseline,0.175722,0.685256,0.430174,3.06781,1140,693352.0,2.67284,0
+velocity_clamp,0.174336,0.683263,0.430092,1.0,1140,693352.0,2.67335,0
+no_clip,0.172582,0.675368,0.429903,3.09034,0,693352.0,2.6992,0
+nullspace,0.00888255,0.0149976,0.00656635,0.06361,0,260.239,1.30593,0
+nullspace_no_clip,0.00888255,0.0149976,0.00656635,0.06361,0,260.239,1.30593,0
