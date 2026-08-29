@@ -2,9 +2,9 @@
 
 Every number here is read from the files in `results/article/`, which `scripts/article_experiments.py` produced in one run. Nothing is rounded for effect.
 
-## The headline, and it contradicts the repository README
+## The headline, and it overturned the earlier explanation
 
-The README currently explains the failure band by saying the arm is pinned against a joint limit and that clipping holds it there. The ablation says that is wrong.
+Before these experiments, this repository explained the failure band by saying the arm was pinned against a joint limit and that clipping held it there. That reading came from the correlation in the sweep: every failing run clips more than a thousand steps, every healthy one clips a dozen or none. The ablation shows the correlation runs the other way round. The README and the results notebook have since been corrected.
 
 Removing the clipping entirely does not repair the run. Bounding the joint velocity does not repair it either. Only the nullspace term repairs it, and it does so whether clipping is on or off. The failure is a posture problem; the clipping is downstream of it.
 

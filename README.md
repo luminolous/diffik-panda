@@ -148,13 +148,35 @@ magnitude and the clip count goes from a dozen steps to over eleven hundred.
 The interesting part is where the failure happens. At `1e-03` the arm looks fine
 crossing the singularity, then degrades behind it, reaching its worst error of
 0.433 m at t = 5.62 s and finishing there at 0.430 m. At that moment `cond(J)`
-is back down around 32, so the arm is not in a singularity. It is pinned against
-a joint limit, and clipping is holding it there. Clipping does not merely
-shorten the commanded step, it points it somewhere else.
+is back down around 32, so the arm is not in a singularity.
+
+Nor is the clipping to blame, tempting as the correlation is. The ablation in
+`results/article/` settles it: disabling the clipping entirely leaves the run
+failing at 0.4299 m instead of 0.4302 m, and bounding the joint velocity
+changes nothing either. What repairs it, at the same damping, is the nullspace
+term, which takes the final error to 0.0066 m whether the clipping is on or
+off. The ordering agrees. The failing run parts company with a healthy one at
+step 1401, and the first clip does not happen until step 1860, 459 steps later.
+
+The failure is posture drift. `||q - q_home||` separates the two outcomes
+cleanly: every failing run in the study reaches 2.67 rad, every healthy one
+stays at or below 1.40. Crossing the singularity, the redundant degree of
+freedom is free to settle either side of a fold, and with no secondary
+objective holding it, some damping values settle on the wrong side and cannot
+get back. The clipping that follows is a symptom of the posture the arm has
+already reached.
 
 From about `7e-03` upward there is no clipping and the lowest tracking error,
 until the damping grows large enough to cost accuracy on its own: `1e-01`
 tracks worse than `1e-02`.
+
+The band is a property of the run at `nullspace_gain = 0`, which is what this
+sweep uses. Any gain from 0.5 up removes it. It does not, however, make the
+solver safe everywhere: at damping `1e-04` clipping persists at every gain and
+the conditioning gets worse as the gain rises, and a fresh isolated failure
+appears at gain 2. The low-damping velocity spike and the mid-band posture
+collapse are two different failures. `results/article/FACTS.md` carries the
+full 2D sweep.
 
 ### Against mink
 
@@ -180,8 +202,13 @@ The honest summary is not that the QP tracks better. Well-tuned damped least
 squares tracks marginally better here, and part of even that gap is the posture
 task mink carries and these DLS runs do not. What the QP buys is that there is
 no tuning to get wrong. The damped solver reaches the same quality only once
-you have found a damping above the failure band, and nothing about a run inside
-that band announces itself until the arm is already jammed.
+you have found a damping above the failure band, and a run inside that band
+gives no warning: it tracks normally right up to the singularity and only
+afterwards reveals which side of the fold the arm came down on.
+
+Note that mink also carries a posture task, which is the same kind of secondary
+objective that removes the band on the DLS side. Its immunity here is not
+attributable to the QP alone.
 
 ## Tuning notes
 

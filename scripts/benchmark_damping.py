@@ -33,10 +33,11 @@ DEFAULT_SCENE = REPO_ROOT / "scene" / "panda_ik.xml"
 DEFAULT_OUTPUT = REPO_ROOT / "results" / "damping_sweep.csv"
 
 # The six decade values are the required sweep. The extra points between 1e-4
-# and 1e-2 resolve a band where the arm takes a different solution branch at the
-# singularity and then jams a joint against its limit; without them that band
-# shows up as a single anomalous decade rather than the wide, stable region it
-# is.
+# and 1e-2 resolve a band where the arm comes out of the singularity in a
+# different posture and never recovers; without them that band shows up as a
+# single anomalous decade rather than the wide, stable region it is. The
+# ablation in results/article/ shows the clipping that follows is a symptom
+# rather than the cause.
 DAMPING_VALUES: tuple[float, ...] = (
     1e-6,
     1e-5,

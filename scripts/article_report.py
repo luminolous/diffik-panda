@@ -194,12 +194,16 @@ def write_facts(data: dict) -> None:
     )
     add("")
 
-    add("## The headline, and it contradicts the repository README")
+    add("## The headline, and it overturned the earlier explanation")
     add("")
     add(
-        "The README currently explains the failure band by saying the arm is "
-        "pinned against a joint limit and that clipping holds it there. The "
-        "ablation says that is wrong."
+        "Before these experiments, this repository explained the failure band "
+        "by saying the arm was pinned against a joint limit and that clipping "
+        "held it there. That reading came from the correlation in the sweep: "
+        "every failing run clips more than a thousand steps, every healthy one "
+        "clips a dozen or none. The ablation shows the correlation runs the "
+        "other way round. The README and the results notebook have since been "
+        "corrected."
     )
     add("")
     add(

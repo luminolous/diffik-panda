@@ -39,7 +39,8 @@ DEFAULT_SCENE = REPO_ROOT / "scene" / "panda_ik.xml"
 DEFAULT_OUTPUT = REPO_ROOT / "results" / "mink_comparison.csv"
 
 # One under-damped value, one inside the band where the sweep showed the arm
-# jamming against a limit, and one well damped.
+# coming out of the singularity in a posture it never recovers from, and one
+# well damped.
 DLS_DAMPING_VALUES: tuple[float, ...] = (1e-4, 1e-3, 1e-2)
 
 # Shared velocity bound, in rad/s. The DLS runs scale dq down to reach it after
